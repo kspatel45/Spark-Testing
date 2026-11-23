@@ -23,12 +23,17 @@
   const adminCfg = () => { const c = config(); delete c.adminPin; c.odoo = { url: '', db: '', username: '', apiKey: '' }; return c; };
   let token = null;
 
-  async function camerasCheck() {
+  async function camerasCheck(force) {
     let cams = [];
     try {
       cams = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
       if (cams.length && !cams[0].label) {
-        try { const s = await navigator.mediaDevices.getUserMedia({ video: true }); s.getTracks().forEach(t => t.stop()); } catch { }
+        // camera names need permission: only ask when the tester presses "Check devices" (never block the dashboard)
+        if (!force) return { os: 'Web browser', host: { name: location.host }, error: '', requirementsKnown: false, cameraCount: { expected: 1, found: 0 }, missing: 0, at: new Date().toISOString(),
+          rows: [{ id: 'nuc', label: 'NUC serial number', required: true, found: [], status: 'unknown', value: 'not available in the web version' },
+                 { id: 'cam1', label: 'Cameras', required: null, why: ['Press "Check devices" and allow camera access to list the cameras'], found: [], status: 'unknown' }] };
+        const ask = navigator.mediaDevices.getUserMedia({ video: true }).then(s => s.getTracks().forEach(t => t.stop())).catch(() => { });
+        await Promise.race([ask, new Promise(r => setTimeout(r, 10000))]);
         cams = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
       }
     } catch { }
@@ -69,7 +74,7 @@
     }
     if (p === '/api/admin/odoo-test') throw [400, 'Odoo is not available in the web version – use the installed Windows tester for Odoo.'];
     if (p === '/api/so') throw [400, 'Odoo is not available in the web version – choose the unit manually.'];
-    if (p === '/api/peripherals') return camerasCheck();
+    if (p === '/api/peripherals') return camerasCheck(!!body.force);
     if (p === '/api/serial/ports') return { ports: [], open: null };
     if (p.startsWith('/api/serial/')) throw [409, 'The web version uses the browser serial port (+ Port).'];
     if (p === '/api/results' && method === 'POST') {

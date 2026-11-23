@@ -388,7 +388,9 @@
     ports = SerialLink.supported() && !embeddedBrowser() ? await link.web.grantedPorts() : [];
     const opts = comPorts.map(p => `<option value="b:${esc(p.path)}">${esc(p.path)} – ${esc(p.name.replace(/\s*\(COM\d+\)/, ''))}${p.ftdi ? ' (FTDI)' : ''}${p.status && p.status !== 'OK' ? ' [' + esc(p.status) + ']' : ''}</option>`)
       .concat(ports.map((p, i) => `<option value="w:${i}">Browser: ${esc(SerialLink.describe(p))}</option>`));
-    sel.innerHTML = opts.length ? opts.join('') : '<option value="">— no COM port found – plug in the adapter —</option>';
+    sel.innerHTML = opts.length ? opts.join('') : window.LANE_WEB
+      ? '<option value="">— click + Port and pick the FTDI adapter —</option>'
+      : '<option value="">— no COM port found – plug in the adapter —</option>';
     const prefs = store.get('serial', {});
     const want = selectKey || prefs.portKey;
     const has = k => k && [...sel.options].some(o => o.value === k);
@@ -537,7 +539,8 @@
     $('#periphInfo').textContent = `${p.os} · ${p.host.name || ''} · ${new Date(p.at).toLocaleTimeString()}`;
     const notes = [];
     if (p.error) notes.push(`<div class="notice notice-err">${esc(p.error)}</div>`);
-    if (!p.requirementsKnown) notes.push(`<div class="notice">The SO options are not known (Odoo lookup without variant options, or unit chosen manually) – only the default camera is expected. Look up the SO again to load its options.</div>`);
+    if (!p.requirementsKnown && window.LANE_WEB) notes.push(`<div class="notice">Web version: only the cameras can be checked here. The NUC serial number, barcode scanner and badge readers need the installed (full) version.</div>`);
+    else if (!p.requirementsKnown) notes.push(`<div class="notice">The SO options are not known (Odoo lookup without variant options, or unit chosen manually) – only the default camera is expected. Look up the SO again to load its options.</div>`);
     else if (p.missing) notes.push(`<div class="notice notice-err"><b>${p.missing} item(s) missing</b> – check the cables / USB hub, then press Check devices.</div>`);
     else notes.push(`<div class="notice notice-ok">All peripherals required by ${esc(session.so)} are connected (cameras ${p.cameraCount.found}/${p.cameraCount.expected}).</div>`);
     $('#periphNote').innerHTML = notes.join('');
