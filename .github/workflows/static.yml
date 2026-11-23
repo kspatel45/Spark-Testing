@@ -42,7 +42,8 @@ jobs:
           UNLOCK: ${{ secrets.UNLOCK }}
         run: |
           rm -rf secrets && mkdir -p secrets
-          if [ -z "$UNLOCK" ]; then echo "UNLOCK secret not set - no secrets published"; exit 0; fi
+          for n in API SUDO UNLOCK; do if [ -n "${!n}" ]; then echo "$n: set"; else echo "::warning::$n secret is missing or empty (Settings > Secrets and variables > Actions > Repository secrets)"; fi; done
+          if [ -z "$UNLOCK" ]; then echo "::warning::UNLOCK secret not set - no secrets published"; exit 0; fi
           enc() { printf '%s' "$1" | openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -md sha256 -salt -pass env:UNLOCK -out "$2"; }
           if [ -n "$API" ]; then enc "$API" secrets/api.enc; fi
           if [ -n "$SUDO" ]; then enc "$SUDO" secrets/sudo.enc; fi
