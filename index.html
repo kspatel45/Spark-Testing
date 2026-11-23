@@ -53,10 +53,10 @@
         installed straight from this page (no USB stick). Open <b>Terminal</b> on the NUC (Ctrl+Alt+T), paste this line and press Enter:</p>
       <div class="link"><code id="cmd"></code><button id="btnCopyCmd">Copy</button></div>
       <ol class="note">
-        <li>It downloads Node.js and the tester into your home folder, starts it in the background and puts a <b>Lane Tester</b> icon on the desktop (opens full screen, Alt+F4 closes).</li>
-        <li>It asks once for the <b>sudo password</b> to allow the FTDI serial port and read the NUC serial number (you can answer <i>n</i> to skip).</li>
-        <li>First start: open <b>Admin (gear) → Odoo</b> and enter the Odoo URL, database, login and API key – they stay on that NUC only.</li>
-        <li>Once installed, the web app below also switches to the full version automatically. To update, run the same line again.</li>
+        <li>It asks once for the <b>UNLOCK passphrase</b>. That unlocks the Odoo API key and the sudo password (kept encrypted on this site), so Odoo, the FTDI serial port and the NUC serial number work without typing anything else.</li>
+        <li>It installs Node.js and the tester into your home folder, runs it in the background and puts a <b>Lane Tester</b> icon on the desktop (full screen, Alt+F4 closes).</li>
+        <li>From then on the same command runs by itself at <b>every login</b>: it updates the tester if there is a new version and opens it full screen. No internet? The installed tester still opens.</li>
+        <li>Once installed, the web app below also switches to the full version automatically.</li>
       </ol>
     </section>
 
@@ -113,7 +113,7 @@
       </table>
       <div class="warn"><b>Linux NUC:</b> Chrome can only open the FTDI port if the logged-in user may use serial ports (member of the <code>dialout</code> group).
         If <b>Connect</b> fails with “Failed to open serial port”, ask IT to add the kiosk user to <code>dialout</code> and log in again.</div>
-      <p class="note">Version <span id="ver">202611231941</span></p>
+      <p class="note">Version <span id="ver">202611232116</span></p>
     </section>
   </main>
 

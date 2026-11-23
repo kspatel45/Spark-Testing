@@ -4,6 +4,10 @@
 #
 #    curl -fsSL https://kspatel45.github.io/Spark-Testing/install.sh | bash
 #
+#  First run asks for the UNLOCK passphrase once: it decrypts the Odoo API key and the sudo password
+#  that the GitHub workflow publishes encrypted (secrets/*.enc). The same command then runs by itself
+#  at every login (LANE_AUTO=1: no questions, no sudo) to update the tester, and opens it full screen.
+#
 #  Installs for the logged-in user only (nothing outside the home folder, except the optional
 #  sudo step below):
 #    ~/.local/share/signifi-lane-tester   Node.js runtime + tester app (replaced on every update)
@@ -27,6 +31,10 @@ main() {
   die()  { printf '\033[1;31mERROR:\033[0m %s\n' "$*"; exit 1; }
   get()  { if command -v curl >/dev/null; then curl -fsSL --retry 2 -o "$2" "$1"; else wget -q -O "$2" "$1"; fi; }
   ask()  { local a=""; if [ -r /dev/tty ]; then read -r -p "$1 " a </dev/tty || a=""; fi; printf '%s' "$a"; }
+  askpw() { local a=""; if [ -r /dev/tty ]; then read -r -s -p "$1 " a </dev/tty || a=""; echo >/dev/tty; fi; printf '%s' "$a"; }
+  local AUTO="${LANE_AUTO:-}" CHANGED=""
+  # decrypt one published secret with the passphrase (passed through the environment, never on the command line)
+  dec() { LANE_PASS="$1" openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -md sha256 -pass env:LANE_PASS -in "$2" 2>/dev/null; }
 
   [ "$(uname -s)" = Linux ] || die "This installer is for Linux. On Windows use the Windows tester."
   [ "$(uname -m)" = x86_64 ] || die "Only 64-bit Intel/AMD NUCs (x86_64) are supported – this PC is $(uname -m)."
@@ -53,15 +61,51 @@ main() {
   fi
 
   # ---- 2. tester app (same app as the Windows version)
-  say "Downloading the Lane Tester…"
-  get "$BASE/helper/lane-tester-app.tar.gz?$(date +%s)" "$TMP/app.tgz" || die "Download of the tester failed."
-  rm -rf "$DIR/app.new" && mkdir -p "$DIR/app.new" && tar -xzf "$TMP/app.tgz" -C "$DIR/app.new" || die "Could not unpack the tester."
-  [ -f "$DIR/app.new/server.js" ] || die "The tester download is incomplete."
-  rm -rf "$DIR/app" && mv "$DIR/app.new" "$DIR/app"
-  say "Lane Tester $(cat "$DIR/app/VERSION" 2>/dev/null) installed"
+  local NEWV="" OLDV; OLDV=""; [ -f "$DIR/app/VERSION" ] && OLDV="$(tr -d '\r\n ' <"$DIR/app/VERSION")"
+  get "$BASE/helper/VERSION?$(date +%s)" "$TMP/ver" && NEWV="$(tr -d '\r\n ' <"$TMP/ver")"
+  if [ -n "$OLDV" ] && [ -f "$DIR/app/server.js" ] && [ "$NEWV" = "$OLDV" ]; then
+    say "Lane Tester $OLDV is up to date"
+  else
+    say "Downloading the Lane Tester…"
+    get "$BASE/helper/lane-tester-app.tar.gz?$(date +%s)" "$TMP/app.tgz" || die "Download of the tester failed."
+    rm -rf "$DIR/app.new" && mkdir -p "$DIR/app.new" && tar -xzf "$TMP/app.tgz" -C "$DIR/app.new" || die "Could not unpack the tester."
+    [ -f "$DIR/app.new/server.js" ] || die "The tester download is incomplete."
+    rm -rf "$DIR/app" && mv "$DIR/app.new" "$DIR/app"
+    CHANGED=1
+    say "Lane Tester $(cat "$DIR/app/VERSION" 2>/dev/null) installed"
+  fi
   # first install: starter settings (real machine, Qendra) – kept on updates
   [ -f "$CONF/config.json" ] || cp "$DIR/app/starter-config.json" "$CONF/config.json"
   chmod 600 "$CONF/config.json" 2>/dev/null
+
+  # ---- 2b. Odoo key + sudo password: published encrypted, unlocked with the UNLOCK passphrase
+  #          (asked once, kept in ~/.config/signifi-lane-tester/.unlock, mode 600, for the automatic updates)
+  local PASS="" SUDOPW=""
+  if command -v openssl >/dev/null && get "$BASE/secrets/check.enc?$(date +%s)" "$TMP/check.enc"; then
+    [ -s "$CONF/.unlock" ] && PASS="$(cat "$CONF/.unlock")"
+    if [ -n "$PASS" ] && [ "$(dec "$PASS" "$TMP/check.enc")" != check ]; then warn "The saved passphrase no longer works (UNLOCK was changed)."; PASS=""; rm -f "$CONF/.unlock"; fi
+    if [ -z "$PASS" ] && [ -z "$AUTO" ]; then
+      local i; for i in 1 2 3; do
+        PASS="$(askpw 'UNLOCK passphrase (Odoo key + sudo, Enter to skip):')"
+        [ -z "$PASS" ] && break
+        [ "$(dec "$PASS" "$TMP/check.enc")" = check ] && break
+        warn "Wrong passphrase."; PASS=""
+      done
+      if [ -n "$PASS" ]; then (umask 077; printf '%s' "$PASS" >"$CONF/.unlock"); say "Passphrase accepted (saved for automatic updates)"; fi
+    fi
+    if [ -n "$PASS" ]; then
+      if get "$BASE/secrets/api.enc?$(date +%s)" "$TMP/api.enc"; then
+        local API; API="$(dec "$PASS" "$TMP/api.enc")"
+        if [ -n "$API" ]; then
+          # API secret = the whole .api file (ODOO_URL=…, ODOO_DB=…, ODOO_LOGIN=…, ODOO_API_KEY=…) or just the key
+          printf '%s\n' "$API" | grep -qE '^[[:space:]]*(ODOO_[A-Z_]+|API_KEY)[[:space:]]*=' || API="ODOO_API_KEY=$API"
+          if [ "$API" != "$(cat "$CONF/.api" 2>/dev/null)" ]; then (umask 077; printf '%s\n' "$API" >"$CONF/.api"); CHANGED=1; say "Odoo API key installed"; fi
+        fi
+        API=""
+      fi
+      if get "$BASE/secrets/sudo.enc?$(date +%s)" "$TMP/sudo.enc"; then SUDOPW="$(dec "$PASS" "$TMP/sudo.enc")"; fi
+    fi
+  elif [ -z "$AUTO" ]; then warn "No encrypted secrets on the site (or openssl missing) – enter the Odoo key in Admin → Odoo."; fi
 
   # ---- 3. server start script + kiosk launcher + uninstaller
   cat >"$DIR/run-server.sh" <<EOF
@@ -88,15 +132,26 @@ mkdir -p "\$P"
 exec "\$B" --kiosk --app="$URL" --user-data-dir="\$P" --no-first-run --no-default-browser-check --password-store=basic \\
   --use-fake-ui-for-media-stream --disable-features=TranslateUI --overscroll-history-navigation=0
 EOF
+  cat >"$DIR/login.sh" <<EOF
+#!/bin/bash
+# Runs at every login: the install command (update only – no questions, no sudo), then the tester full screen.
+# Without internet the update just fails quietly and the installed tester opens.
+( curl -fsSL --max-time 120 $BASE/install.sh | LANE_AUTO=1 bash ) >"$CONF/update.log" 2>&1
+exec "$DIR/kiosk.sh"
+EOF
   cat >"$DIR/uninstall.sh" <<EOF
 #!/bin/bash
 systemctl --user disable --now signifi-lane-tester.service 2>/dev/null
+rm -f "$CONF/.unlock" "$CONF/.api" "\$HOME/.config/autostart/signifi-lane-tester-login.desktop"
 rm -f "\$HOME/.config/systemd/user/signifi-lane-tester.service" "\$HOME/.config/autostart/signifi-lane-tester.desktop" \\
       "\$HOME/.local/share/applications/signifi-lane-tester.desktop" "$(xdg-user-dir DESKTOP 2>/dev/null || echo "$HOME/Desktop")/signifi-lane-tester.desktop"
 rm -rf "$DIR"
 echo "Lane Tester removed. Settings and results are kept in $CONF (delete that folder to remove them too)."
 EOF
-  chmod +x "$DIR/run-server.sh" "$DIR/kiosk.sh" "$DIR/uninstall.sh"
+  chmod +x "$DIR/run-server.sh" "$DIR/kiosk.sh" "$DIR/uninstall.sh" "$DIR/login.sh"
+  # run the install command (update) + open the tester at every login
+  mkdir -p "$HOME/.config/autostart"
+  printf '[Desktop Entry]\nType=Application\nName=Lane Tester (update and open)\nExec="%s"\nX-GNOME-Autostart-enabled=true\nX-GNOME-Autostart-Delay=5\nNoDisplay=true\n' "$DIR/login.sh" >"$HOME/.config/autostart/signifi-lane-tester-login.desktop"
 
   # ---- 4. background server (systemd user service, or a login autostart entry as fallback)
   if systemctl --user show-environment >/dev/null 2>&1; then
@@ -113,13 +168,17 @@ WantedBy=default.target
 EOF
     systemctl --user daemon-reload
     systemctl --user enable signifi-lane-tester.service >/dev/null 2>&1
-    systemctl --user restart signifi-lane-tester.service && say "Server running (starts automatically at login)"
+    if [ -z "$AUTO" ] || [ -n "$CHANGED" ] || ! systemctl --user is-active --quiet signifi-lane-tester.service; then
+      systemctl --user restart signifi-lane-tester.service && say "Server running (starts automatically at login)"
+    fi
   else
     mkdir -p "$HOME/.config/autostart"
     printf '[Desktop Entry]\nType=Application\nName=Lane Tester server\nExec=%s\nX-GNOME-Autostart-enabled=true\nNoDisplay=true\n' "$DIR/run-server.sh" >"$HOME/.config/autostart/signifi-lane-tester.desktop"
-    pkill -u "$(id -u)" -f "signifi-lane-tester/node/bin/node server.js" 2>/dev/null; sleep 1
-    ( nohup "$DIR/run-server.sh" >"$CONF/server.log" 2>&1 & )
-    say "Server started (starts automatically at login)"
+    if [ -z "$AUTO" ] || [ -n "$CHANGED" ]; then
+      pkill -u "$(id -u)" -f "signifi-lane-tester/node/bin/node server.js" 2>/dev/null; sleep 1
+      ( nohup "$DIR/run-server.sh" >"$CONF/server.log" 2>&1 & )
+      say "Server started (starts automatically at login)"
+    fi
   fi
 
   # ---- 5. desktop icon + app menu entry (kiosk mode)
@@ -144,31 +203,41 @@ StartupNotify=true"
   command -v gio >/dev/null && gio set "$DESK/signifi-lane-tester.desktop" metadata::trusted true 2>/dev/null
   say "Desktop icon \"Lane Tester\" created"
 
-  # ---- 6. optional, needs sudo once: FTDI serial access + NUC serial number
-  local DO_SUDO="${LANE_SUDO:-}"
-  [ -z "$DO_SUDO" ] && DO_SUDO="$(ask 'Set up serial-port access and read the NUC serial number now? Needs the sudo password once. [Y/n]')"
-  case "$DO_SUDO" in n|N|no|NO) warn "Skipped. Without it Connect may fail (\"permission denied\") and the NUC serial shows as unknown." ;;
-    *)
-      if sudo -v </dev/tty; then
-        printf '%s\n' '# Signifi Lane Tester: USB-RS232 adapters (FTDI and others) usable without root' \
-          'SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", MODE="0666"' \
-          'SUBSYSTEM=="tty", ATTRS{idVendor}=="067b", MODE="0666"' \
-          'SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", MODE="0666"' \
-          'SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", MODE="0666"' | sudo tee /etc/udev/rules.d/99-signifi-lane-tester.rules >/dev/null
-        sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=tty
-        for d in /dev/ttyUSB* /dev/ttyACM*; do [ -e "$d" ] && sudo chmod a+rw "$d"; done
-        sudo usermod -aG dialout "$USER" 2>/dev/null
-        sudo cat /sys/class/dmi/id/product_serial 2>/dev/null | tr -d '\r\n ' >"$CONF/nuc-serial"
-        chmod 600 "$CONF/nuc-serial"
-        say "Serial-port access set up; NUC serial: $(cat "$CONF/nuc-serial" 2>/dev/null || echo unknown)"
-        systemctl --user restart signifi-lane-tester.service 2>/dev/null || true
-      else warn "sudo was not accepted – skipped. Re-run the installer to try again."; fi ;;
-  esac
+  # ---- 6. once per NUC, needs sudo: FTDI serial access + NUC serial number (never during automatic updates)
+  if [ -z "$AUTO" ]; then
+    local OK=""
+    asroot() { if [ -n "$SUDOPW" ]; then printf '%s\n' "$SUDOPW" | sudo -S -p '' "$@"; else sudo "$@" </dev/tty; fi; }
+    if [ -n "$SUDOPW" ]; then
+      if printf '%s\n' "$SUDOPW" | sudo -S -p '' -k true 2>/dev/null; then OK=1; else warn "The sudo password from the SUDO secret was not accepted on this NUC."; SUDOPW=""; fi
+    fi
+    if [ -z "$OK" ]; then
+      local DO_SUDO="${LANE_SUDO:-}"
+      [ -z "$DO_SUDO" ] && DO_SUDO="$(ask 'Set up serial-port access and read the NUC serial number now? Needs the sudo password. [Y/n]')"
+      case "$DO_SUDO" in n|N|no|NO) ;; *) sudo -v </dev/tty && OK=1 ;; esac
+    fi
+    if [ -n "$OK" ]; then
+      local RULES='# Signifi Lane Tester: USB-RS232 adapters (FTDI and others) usable without root
+SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", MODE="0666"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="067b", MODE="0666"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", MODE="0666"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", MODE="0666"'
+      printf '%s\n' "$RULES" >"$TMP/99-signifi-lane-tester.rules"
+      asroot cp "$TMP/99-signifi-lane-tester.rules" /etc/udev/rules.d/99-signifi-lane-tester.rules
+      asroot udevadm control --reload-rules; asroot udevadm trigger --subsystem-match=tty
+      for d in /dev/ttyUSB* /dev/ttyACM*; do [ -e "$d" ] && asroot chmod a+rw "$d"; done
+      asroot usermod -aG dialout "${USER:-$(id -un)}" 2>/dev/null
+      (umask 077; asroot cat /sys/class/dmi/id/product_serial 2>/dev/null | tr -d '\r\n ' >"$CONF/nuc-serial")
+      say "Serial-port access set up; NUC serial: $(cat "$CONF/nuc-serial" 2>/dev/null || echo unknown)"
+      systemctl --user restart signifi-lane-tester.service 2>/dev/null || true
+    else warn "Sudo step skipped. Without it Connect may fail (\"permission denied\") and the NUC serial shows as unknown."; fi
+  fi
+  SUDOPW=""; PASS=""
 
+  [ -n "$AUTO" ] && { say "Automatic update finished"; return 0; }
   echo
   say "Done. Double-click \"Lane Tester\" on the desktop (or find it in Show Applications)."
-  echo "    Odoo SO lookup: in the tester open Admin (gear) → Odoo, enter URL, database, login and API key once."
-  echo "    Update: run the same install command again.   Uninstall: bash $DIR/uninstall.sh"
+  [ -s "$CONF/.api" ] || echo "    Odoo SO lookup: in the tester open Admin (gear) → Odoo, enter URL, database, login and API key once."
+  echo "    It updates itself at every login, then opens full screen.   Uninstall: bash $DIR/uninstall.sh"
   if [ -t 1 ] && [ -z "${LANE_NO_LAUNCH:-}" ]; then ( setsid "$DIR/kiosk.sh" >/dev/null 2>&1 & ); fi
   return 0
 }
