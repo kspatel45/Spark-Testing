@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Signifi Lane Tester – Install</title>
+  <meta name="description" content="Jofemar Qendra lane tester for Signifi Spark XL and Companion kiosks.">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#1f2121">
+  <link rel="icon" href="icons/icon-192.png">
+  <style>
+    :root { --brand: #d0202b; --ink: #1f2121; --muted: #6b7280; --line: #dde1e7; --bg: #f3f4f6; --ok: #15803d; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif; background: var(--bg); color: var(--ink); }
+    header { background: #fff; border-bottom: 3px solid var(--brand); padding: 14px 24px; display: flex; align-items: center; gap: 16px; }
+    header img { height: 40px; }
+    header .t { font-weight: 700; font-size: 1.1rem; }
+    header .s { color: var(--muted); font-size: .85rem; }
+    main { max-width: 980px; margin: 28px auto; padding: 0 16px; display: grid; grid-template-columns: 1.3fr 1fr; gap: 20px; }
+    .card { background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 24px; box-shadow: 0 1px 3px rgba(16,24,40,.08); }
+    h1 { margin: 0 0 6px; font-size: 1.6rem; }
+    p { line-height: 1.5; }
+    .btns { display: flex; gap: 12px; flex-wrap: wrap; margin: 18px 0 8px; }
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 52px; padding: 0 22px; border-radius: 10px; font: inherit; font-weight: 600; font-size: 1rem; text-decoration: none; cursor: pointer; border: 1px solid var(--line); background: #fff; color: var(--ink); }
+    .btn-primary { background: var(--ink); color: #fff; border-color: var(--ink); }
+    .btn-red { background: var(--brand); color: #fff; border-color: var(--brand); }
+    .btn[hidden] { display: none; }
+    .link { font-family: ui-monospace, Consolas, monospace; background: #f1f3f6; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; word-break: break-all; display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+    .link button { border: 0; background: none; color: #2563eb; cursor: pointer; font: inherit; font-weight: 600; }
+    .qr { display: grid; place-items: center; gap: 10px; text-align: center; }
+    .qr #qr { width: 240px; height: 240px; display: grid; place-items: center; background: #fff; }
+    .qr #qr svg { width: 100%; height: 100%; }
+    ol { padding-left: 20px; line-height: 1.7; }
+    .note { font-size: .88rem; color: var(--muted); }
+    .ok { color: var(--ok); font-weight: 600; }
+    .warn { background: #fff6e5; border: 1px solid #f6d79b; color: #7a4a06; border-radius: 10px; padding: 10px 12px; font-size: .9rem; margin-top: 12px; }
+    table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+    td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    td:first-child { width: 26px; }
+    .full { grid-column: 1 / -1; }
+    @media (max-width: 760px) { main { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <header>
+    <img src="app/img/signifi-logo.png" alt="Signifi Solutions Inc.">
+    <div><div class="t">Lane Tester</div><div class="s">Jofemar Qendra · J-CONNECT · Spark XL &amp; Companion</div></div>
+  </header>
+  <main>
+    <section class="card">
+      <h1>Install the Lane Tester</h1>
+      <p>Runs in Google Chrome or Microsoft Edge on the kiosk NUC. Nothing is installed on the system and no USB stick is needed.
+        Once installed it opens in its own full-screen window and keeps working when the network drops.</p>
+      <div class="btns">
+        <button class="btn btn-red" id="btnInstall" hidden>⬇ Install app</button>
+        <a class="btn btn-primary" href="app/" id="btnOpen">▶ Open Lane Tester</a>
+      </div>
+      <p class="note" id="installState">If the Install button does not appear, open the tester and use Chrome's menu ⋮ → <b>Cast, save and share → Install page as app</b> (or the install icon in the address bar).</p>
+      <div class="link"><span id="url"></span><button id="btnCopy">Copy</button></div>
+      <h3>Steps on the NUC</h3>
+      <ol>
+        <li>Open this link in Chrome (type it, or scan the QR code with the kiosk's barcode scanner into the address bar).</li>
+        <li>Click <b>Install app</b> (or <b>Open Lane Tester</b> to use it without installing).</li>
+        <li>Enter the tester name and SO number, choose <b>Spark XL</b> or <b>Companion</b>.</li>
+        <li>Plug the FTDI USB-RS232 adapter into the JSD, click <b>+ Port</b> and pick the <b>FTDI</b> port. Chrome remembers it.</li>
+        <li>Click <b>Connect</b>, then <b>Scan lanes</b> and <b>Test all lanes</b>.</li>
+      </ol>
+    </section>
+
+    <section class="card qr">
+      <div id="qr">Loading QR…</div>
+      <b>Scan to open on another device</b>
+      <span class="note">Phone, tablet or the kiosk's scanner</span>
+    </section>
+
+    <section class="card full">
+      <h3 style="margin-top:0">What the web version does</h3>
+      <table>
+        <tr><td class="ok">✔</td><td>Lane scan, single-lane test, Test all lanes, Full cycle / Basic test, cycle count, pass/fail with the failed step</td></tr>
+        <tr><td class="ok">✔</td><td>J-CONNECT heartbeat, JSD firmware, sensor LEDs, manual controls, communication log</td></tr>
+        <tr><td class="ok">✔</td><td>Camera count and live camera view</td></tr>
+        <tr><td class="ok">✔</td><td>Results saved in this browser, CSV download and printable report</td></tr>
+        <tr><td>–</td><td>No Odoo SO lookup (no API key in a public web page): choose Spark XL / Companion by hand</td></tr>
+        <tr><td>–</td><td>No NUC serial number or USB device list (barcode scanner, TWN4, HID reader): browsers are not allowed to read them</td></tr>
+      </table>
+      <div class="warn"><b>Linux NUC:</b> Chrome can only open the FTDI port if the logged-in user may use serial ports (member of the <code>dialout</code> group).
+        If <b>Connect</b> fails with “Failed to open serial port”, ask IT to add the kiosk user to <code>dialout</code> and log in again.</div>
+      <p class="note">Version <span id="ver">202611231615</span></p>
+    </section>
+  </main>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+  <script>
+    const appUrl = new URL('app/', location.href).href;
+    const pageUrl = location.href.split('#')[0].split('?')[0];
+    document.getElementById('url').textContent = pageUrl;
+    document.getElementById('btnCopy').onclick = async () => {
+      try { await navigator.clipboard.writeText(pageUrl); document.getElementById('btnCopy').textContent = 'Copied'; } catch { }
+    };
+    try {
+      const q = qrcode(0, 'M'); q.addData(pageUrl); q.make();
+      document.getElementById('qr').innerHTML = q.createSvgTag({ cellSize: 6, margin: 2, scalable: true });
+    } catch { document.getElementById('qr').textContent = 'QR code needs internet access – use the link instead.'; }
+
+    // PWA install
+    let deferred = null;
+    window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferred = e; document.getElementById('btnInstall').hidden = false; });
+    document.getElementById('btnInstall').onclick = async () => {
+      if (!deferred) return; deferred.prompt();
+      const r = await deferred.userChoice; deferred = null; document.getElementById('btnInstall').hidden = true;
+      if (r.outcome === 'accepted') document.getElementById('installState').innerHTML = '<span class="ok">Installed.</span> Open it from the desktop / app launcher (“Lane Tester”).';
+    };
+    window.addEventListener('appinstalled', () => { document.getElementById('installState').innerHTML = '<span class="ok">Installed.</span> Open it from the desktop / app launcher (“Lane Tester”).'; });
+    if (matchMedia('(display-mode: standalone)').matches) location.replace(appUrl);
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => { });
+  </script>
+</body>
+</html>

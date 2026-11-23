@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+  <title>Signifi Lane Tester</title>
+  <link rel="icon" href="../icons/icon-192.png">
+  <link rel="manifest" href="../manifest.webmanifest">
+  <meta name="theme-color" content="#1f2121">
+  <link rel="stylesheet" href="css/app.css?v=202611231615">
+</head>
+<body>
+  <!-- ============================================================ HEADER -->
+  <header class="topbar">
+    <div class="brand">
+      <img src="img/signifi-logo.png" alt="Signifi Solutions Inc." class="brand-logo">
+      <div class="brand-text">
+        <div class="brand-title">Lane Tester</div>
+        <div class="brand-sub">Jofemar Qendra · J-CONNECT</div>
+      </div>
+    </div>
+
+    <div class="session-chips" id="sessionChips" hidden>
+      <div class="chip"><span>SO</span><b id="chipSO">-</b></div>
+      <div class="chip chip-unit"><span>Unit</span><b id="chipUnit">-</b></div>
+      <div class="chip"><span>Tester</span><b id="chipTester">-</b></div>
+      <button class="btn btn-ghost btn-sm" id="btnChangeSession">Change</button>
+    </div>
+
+    <div class="status-area">
+      <div class="pill" id="pillSim" hidden>SIMULATOR</div>
+      <div class="pill" id="pillConn"><i class="dot"></i><span>Disconnected</span></div>
+      <div class="pill" id="pillHb" title="JSD heartbeat"><i class="dot"></i><span>Heartbeat off</span></div>
+      <button class="icon-btn" id="btnAdmin" title="Admin">
+        <svg viewBox="0 0 24 24"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- ============================================================ START SCREEN -->
+  <main id="screenStart" class="screen">
+    <section class="start-card">
+      <img src="img/signifi-logo.png" alt="Signifi Solutions Inc." class="start-logo">
+      <h1>Start a test session</h1>
+      <p class="muted">Enter your name and the Sales Order number. The unit to test is pulled from Odoo.</p>
+
+      <label class="field">
+        <span>Tester name</span>
+        <input id="inTester" type="text" autocomplete="off" placeholder="e.g. John Smith">
+      </label>
+      <label class="field">
+        <span>SO number</span>
+        <div class="row-input">
+          <input id="inSO" type="text" autocomplete="off" placeholder="e.g. S01234" style="text-transform:uppercase">
+          <button class="btn btn-primary btn-lg" id="btnLookup">Look up</button>
+        </div>
+      </label>
+
+      <div id="soResult" class="so-result" hidden></div>
+
+      <div id="odooWarn" class="notice" hidden>
+        Odoo is not configured yet — ask an admin to set it up (gear icon), or pick the unit manually below.
+      </div>
+    </section>
+  </main>
+
+  <!-- ============================================================ DASHBOARD -->
+  <main id="screenTest" class="screen dash" hidden>
+    <!-- left column -->
+    <aside class="side">
+      <section class="card">
+        <h3>Serial connection</h3>
+        <div id="serialUnsupported" class="notice notice-err" hidden>
+          This window can't access COM ports. Open the tester in Google Chrome or Microsoft Edge (<code>start-kiosk.bat</code> or <code>http://localhost:8080</code>).
+        </div>
+        <label class="field sm">
+          <span>COM port</span>
+          <div class="row-input">
+            <select id="selPort"><option value="">— none granted —</option></select>
+            <button class="btn btn-sm" id="btnRefreshPorts" title="Refresh the COM port list">↻</button>
+            <button class="btn btn-sm" id="btnAddPort" title="Pick a port with the browser's Web Serial picker (fallback)">+ Port</button>
+          </div>
+        </label>
+        <a href="#" class="help-link" id="lnkPortHelp">COM port not in the list?</a>
+        <div class="grid2">
+          <label class="field sm"><span>Baud rate</span>
+            <select id="selBaud"></select>
+          </label>
+          <label class="field sm"><span>Line ending</span>
+            <select id="selEol">
+              <option value="none">None</option>
+              <option value="cr">CR (\r)</option>
+              <option value="lf">LF (\n)</option>
+              <option value="crlf">CR+LF (\r\n)</option>
+            </select>
+          </label>
+        </div>
+        <details class="adv">
+          <summary>Advanced (data / parity / stop)</summary>
+          <div class="grid3">
+            <label class="field sm"><span>Data bits</span><select id="selData"><option>8</option><option>7</option></select></label>
+            <label class="field sm"><span>Parity</span><select id="selParity"><option value="none">None</option><option value="even">Even</option><option value="odd">Odd</option></select></label>
+            <label class="field sm"><span>Stop bits</span><select id="selStop"><option>1</option><option>2</option></select></label>
+          </div>
+        </details>
+        <button class="btn btn-primary btn-block" id="btnConnect">Connect</button>
+        <label class="toggle"><input type="checkbox" id="chkHb" checked><span>Send heartbeat to JSD (Op 100)</span></label>
+        <p class="hint">J-CONNECT: 9600 baud, 8N1, line ending None.</p>
+      </section>
+
+      <section class="card">
+        <h3>Machine</h3>
+        <dl class="kv" id="machineInfo">
+          <dt>Model</dt><dd id="miModel">–</dd>
+          <dt>JSD</dt><dd id="miJsd">–</dd>
+          <dt>Door</dt><dd id="miDoor">–</dd>
+          <dt>Status</dt><dd id="miAvail">–</dd>
+          <dt>Elevator</dt><dd id="miQ">–</dd>
+          <dt>Temp.</dt><dd id="miTemp">–</dd>
+          <dt>Faults</dt><dd id="miFaults">–</dd>
+        </dl>
+      </section>
+
+      <section class="card">
+        <div class="card-head"><h3>Sensors</h3><button class="btn btn-sm" id="btnSensors" title="Read status, faults and tray sensors (Op 100 / 115 / 117)">&#8635; Read</button></div>
+        <div id="sensorPanel" class="sensors"></div>
+        <p class="hint leds-legend"><span><i class="led on"></i>OK / active</span><span><i class="led warn"></i>Attention</span><span><i class="led bad"></i>Fault</span><span><i class="led off"></i>Off</span><span><i class="led unk"></i>Unknown</span></p>
+      </section>
+
+      <section class="card">
+        <h3>Manual control</h3>
+        <div class="grid2">
+          <button class="btn" data-act="status">Machine status</button>
+          <button class="btn" data-act="toHatch">Elevator → hatch</button>
+          <button class="btn" data-act="closeHatch">Close hatch</button>
+          <button class="btn" data-act="light">Light on/off</button>
+          <button class="btn" data-act="soldout">Reset sold-out</button>
+          <button class="btn" data-act="faults">Reset faults</button>
+        </div>
+        <details class="adv">
+          <summary>Send J-CONNECT command</summary>
+          <div class="row-input">
+            <input id="inOp" type="number" class="w-op" placeholder="Op" value="100">
+            <input id="inOpData" type="text" placeholder="data e.g. 0">
+            <button class="btn btn-sm" id="btnRaw">Send</button>
+          </div>
+        </details>
+      </section>
+    </aside>
+
+    <!-- main column -->
+    <section class="main">
+      <div class="toolbar">
+        <button class="btn btn-lg" id="btnScan">
+          <svg viewBox="0 0 24 24"><path d="M3 7V4h3M21 7V4h-3M3 17v3h3M21 17v3h-3M7 12h10" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+          Scan lanes</button>
+        <button class="btn btn-lg btn-primary" id="btnTestAll">
+          <svg viewBox="0 0 24 24"><path d="M7 4l12 8-12 8z" fill="currentColor"/></svg>
+          Test all lanes</button>
+        <button class="btn btn-lg" id="btnRetest" disabled>Retest failed</button>
+        <div class="seg" id="segMode" role="radiogroup" title="Full cycle waits for the machine sensors (product drop, hatch, home). Basic passes the lane once its motor runs.">
+          <button type="button" data-mode="full" class="on">Full cycle</button>
+          <button type="button" data-mode="basic">Basic</button>
+        </div>
+        <label class="cycles" title="Run the test this many times in a row">Cycles <input type="number" id="inCycles" min="1" max="999" value="1"></label>
+        <button class="btn btn-lg btn-danger" id="btnStop" hidden>
+          <svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" fill="currentColor"/></svg>
+          Stop</button>
+        <div class="spacer"></div>
+        <button class="btn btn-lg" id="btnReset">Reset</button>
+        <button class="btn btn-lg btn-success" id="btnFinish">Finish &amp; save</button>
+      </div>
+
+      <div class="stats">
+        <div class="stat"><span>Lanes</span><b id="stTotal">0</b></div>
+        <div class="stat pass"><span>Pass</span><b id="stPass">0</b></div>
+        <div class="stat fail"><span>Fail</span><b id="stFail">0</b></div>
+        <div class="stat"><span>Untested</span><b id="stLeft">0</b></div>
+        <div class="progress"><div id="progBar"></div><span id="progTxt">Ready</span></div>
+      </div>
+
+      <ol class="stepper" id="stepper">
+        <li data-step="move">Elevator → lane</li>
+        <li data-step="motor">Run lane</li>
+        <li data-step="hatchPos">Elevator → hatch</li>
+        <li data-step="hatch">Hatch open / close</li>
+        <li data-step="home">Home</li>
+      </ol>
+      <div class="step-detail" id="stepDetail"></div>
+
+      <div class="prompt-bar" id="promptBar" hidden>
+        <svg viewBox="0 0 24 24"><path d="M12 2 1 21h22L12 2Zm0 6v6m0 3v.5" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+        <span id="promptText"></span>
+      </div>
+
+      <div class="grid-wrap">
+        <div class="grid-head">
+          <h3>Lane layout <small class="muted" id="layoutInfo"></small></h3>
+          <div class="legend">
+            <span><i class="lg untested"></i>Untested</span>
+            <span><i class="lg testing"></i>Testing</span>
+            <span><i class="lg pass"></i>Pass</span>
+            <span><i class="lg fail"></i>Fail</span>
+          </div>
+        </div>
+        <div id="laneGrid" class="lane-grid"></div>
+        <p class="hint">Tap a lane to test it on its own. Lanes come from the machine (Scan lanes, Op 101). ● = product loaded.</p>
+      </div>
+
+      <div class="periph-wrap">
+        <div class="grid-head">
+          <h3>Peripherals <small class="muted" id="periphInfo"></small></h3>
+          <button class="btn btn-sm" id="btnPeriph">&#8635; Check devices</button>
+        </div>
+        <div id="periphNote"></div>
+        <table class="periph" id="periphTable"><tbody><tr><td class="muted">Press <b>Check devices</b> to compare the SO options with the devices connected to this PC.</td></tr></tbody></table>
+      </div>
+
+      <details class="log-wrap" id="logWrap">
+        <summary>Communication log <span class="muted" id="logCount"></span></summary>
+        <div class="log-tools">
+          <label class="toggle sm"><input type="checkbox" id="chkLogHb"><span>Show heartbeat</span></label>
+          <label class="toggle sm"><input type="checkbox" id="chkLogRaw"><span>Raw bytes</span></label>
+          <button class="btn btn-sm" id="btnLogClear">Clear</button>
+        </div>
+        <pre id="log" class="log"></pre>
+      </details>
+    </section>
+  </main>
+
+  <!-- ============================================================ MODALS -->
+  <div class="modal" id="modalAdmin" hidden>
+    <div class="modal-box wide">
+      <div class="modal-head">
+        <h2>Admin</h2>
+        <button class="icon-btn" data-close>✕</button>
+      </div>
+      <div id="adminLogin" class="admin-login">
+        <p>Enter admin PIN</p>
+        <input id="inPin" type="password" inputmode="numeric" autocomplete="off" class="pin">
+        <div class="keypad" id="keypad"></div>
+        <button class="btn btn-primary btn-lg" id="btnPin">Unlock</button>
+      </div>
+      <div id="adminBody" hidden>
+        <nav class="tabs" id="adminTabs">
+          <button data-tab="odoo" class="active">Odoo</button>
+          <button data-tab="products">Products &amp; layout</button>
+          <button data-tab="machine">Machine &amp; J-CONNECT</button>
+          <button data-tab="timing">Timing</button>
+          <button data-tab="security">Security</button>
+          <button data-tab="history">History</button>
+        </nav>
+        <div class="tab-body" id="adminTabBody"></div>
+        <div class="modal-foot">
+          <span class="muted" id="adminMsg"></span>
+          <button class="btn" data-close>Close</button>
+          <button class="btn btn-primary" id="btnAdminSave">Save settings</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="modalSummary" hidden>
+    <div class="modal-box">
+      <div class="modal-head"><h2 id="sumTitle">Test summary</h2><button class="icon-btn" data-close>✕</button></div>
+      <div id="sumBody"></div>
+      <div class="modal-foot">
+        <label class="toggle"><input type="checkbox" id="chkPostOdoo" checked><span>Post result to SO in Odoo</span></label>
+        <div class="spacer"></div>
+        <button class="btn" id="btnCsv">Download CSV</button>
+        <button class="btn" id="btnPrint">Print</button>
+        <button class="btn btn-success" id="btnSave">Save &amp; new session</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="modalCam" hidden>
+    <div class="modal-box">
+      <div class="modal-head"><h2 id="camTitle">Camera</h2><button class="icon-btn" id="btnCamClose">✕</button></div>
+      <div class="cam-bar"><select id="selCam"></select><span class="muted" id="camInfo"></span></div>
+      <div class="cam-view"><video id="camVideo" autoplay playsinline muted></video><div class="cam-msg" id="camMsg"></div></div>
+    </div>
+  </div>
+
+  <div class="modal" id="modalPortHelp" hidden>
+    <div class="modal-box">
+      <div class="modal-head"><h2>COM port not showing?</h2><button class="icon-btn" data-close>✕</button></div>
+      <div class="help-body">
+        <div id="phBrowser" class="notice" hidden>
+          This browser can't show its own port picker – that's fine: use the COM ports in the dropdown, which come straight from Windows through the tester server.
+        </div>
+        <ol class="help-steps">
+          <li><b>The dropdown lists the COM ports Windows sees</b> (e.g. <i>COM49 – USB Serial Port (FTDI)</i>). Press <b>↻</b> after plugging in the adapter, pick the port and press <b>Connect</b>.</li>
+          <li><b>Plug in the FTDI adapter</b> and check Device Manager → <b>Ports (COM &amp; LPT)</b> shows <i>USB Serial Port (COMx)</i>. Greyed-out entries (View → Show hidden devices) are adapters that are <u>not connected</u>.</li>
+          <li><b>Only "USB Serial Converter" under Universal Serial Bus controllers, no COM port?</b> Right-click it → Properties → Advanced → tick <b>Load VCP</b> → OK, then unplug and replug the adapter.</li>
+          <li><b>Close other programs</b> that use the port: Jofemar <i>Formulario JConnect</i>, <i>DistribuidorRS232</i>, PuTTY, Arduino IDE, the Signifi kiosk app. The port can be open in only one program at a time.</li>
+          <li>Still empty? Unplug the adapter, wait 5 s, plug it into a different USB port, then press <b>↻</b> again.</li>
+          <li>Port opens but "JSD not responding"? Check the JSD is powered, the RS232 cable goes to the JSD's <b>CON3 (RS232)</b> connector (Jofemar harness 88003118), and the baud rate is <b>9600</b>.</li>
+        </ol>
+      </div>
+      <div class="modal-foot"><div class="spacer"></div><button class="btn btn-primary" data-close>OK</button></div>
+    </div>
+  </div>
+
+  <div class="modal" id="modalConfirm" hidden>
+    <div class="modal-box narrow">
+      <div class="modal-head"><h2 id="cfTitle">Confirm</h2></div>
+      <p id="cfText"></p>
+      <div class="modal-foot">
+        <div class="spacer"></div>
+        <button class="btn" id="cfNo">Cancel</button>
+        <button class="btn btn-primary" id="cfYes">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toasts" class="toasts"></div>
+  <div id="printArea" class="print-area"></div>
+
+  <script src="js/defaults.js?v=202611231615"></script>
+  <script src="js/webshim.js?v=202611231615"></script>
+  <script src="js/jconnect.js?v=202611231615"></script>
+  <script src="js/machine.js?v=202611231615"></script>
+  <script src="js/app.js?v=202611231615"></script>
+</body>
+</html>
