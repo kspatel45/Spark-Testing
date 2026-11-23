@@ -47,8 +47,21 @@
     <div><div class="t">Lane Tester</div><div class="s">Jofemar Qendra · J-CONNECT · Spark XL &amp; Companion</div></div>
   </header>
   <main>
+    <section class="card full" id="fullver" style="border:2px solid var(--brand)">
+      <h1>Full version on the Linux NUC <span style="font-size:.8rem;color:var(--ok)">recommended</span></h1>
+      <p>Everything the Windows tester does – <b>Odoo SO lookup, NUC serial number, barcode scanner / TWN4 / HID reader check</b>, cameras, lanes –
+        installed straight from this page (no USB stick). Open <b>Terminal</b> on the NUC (Ctrl+Alt+T), paste this line and press Enter:</p>
+      <div class="link"><code id="cmd"></code><button id="btnCopyCmd">Copy</button></div>
+      <ol class="note">
+        <li>It downloads Node.js and the tester into your home folder, starts it in the background and puts a <b>Lane Tester</b> icon on the desktop (opens full screen, Alt+F4 closes).</li>
+        <li>It asks once for the <b>sudo password</b> to allow the FTDI serial port and read the NUC serial number (you can answer <i>n</i> to skip).</li>
+        <li>First start: open <b>Admin (gear) → Odoo</b> and enter the Odoo URL, database, login and API key – they stay on that NUC only.</li>
+        <li>Once installed, the web app below also switches to the full version automatically. To update, run the same line again.</li>
+      </ol>
+    </section>
+
     <section class="card">
-      <h1>Install the Lane Tester</h1>
+      <h1>Web app (any PC, limited)</h1>
       <p>Runs in Google Chrome or Microsoft Edge on the kiosk NUC. Nothing is installed on the system and no USB stick is needed.
         Once installed it opens in its own full-screen window and keeps working when the network drops.</p>
       <div class="btns">
@@ -89,7 +102,7 @@
     </section>
 
     <section class="card full">
-      <h3 style="margin-top:0">What the web version does</h3>
+      <h3 style="margin-top:0">What the web app (without the full version) does</h3>
       <table>
         <tr><td class="ok">✔</td><td>Lane scan, single-lane test, Test all lanes, Full cycle / Basic test, cycle count, pass/fail with the failed step</td></tr>
         <tr><td class="ok">✔</td><td>J-CONNECT heartbeat, JSD firmware, sensor LEDs, manual controls, communication log</td></tr>
@@ -100,7 +113,7 @@
       </table>
       <div class="warn"><b>Linux NUC:</b> Chrome can only open the FTDI port if the logged-in user may use serial ports (member of the <code>dialout</code> group).
         If <b>Connect</b> fails with “Failed to open serial port”, ask IT to add the kiosk user to <code>dialout</code> and log in again.</div>
-      <p class="note">Version <span id="ver">202611231914</span></p>
+      <p class="note">Version <span id="ver">202611231941</span></p>
     </section>
   </main>
 
@@ -116,6 +129,12 @@
       const q = qrcode(0, 'M'); q.addData(pageUrl); q.make();
       document.getElementById('qr').innerHTML = q.createSvgTag({ cellSize: 6, margin: 2, scalable: true });
     } catch { document.getElementById('qr').textContent = 'QR code needs internet access – use the link instead.'; }
+
+    const cmd = 'curl -fsSL ' + new URL('install.sh', pageUrl).href + ' | bash';
+    document.getElementById('cmd').textContent = cmd;
+    document.getElementById('btnCopyCmd').onclick = async () => {
+      try { await navigator.clipboard.writeText(cmd); document.getElementById('btnCopyCmd').textContent = 'Copied'; } catch { }
+    };
 
     // kiosk desktop shortcuts (a web page cannot write to the desktop itself – the tester saves the file there)
     function saveFile(name, text, type) {

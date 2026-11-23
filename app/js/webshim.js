@@ -8,6 +8,16 @@
   window.LANE_WEB = true;
   const installed = ['standalone', 'fullscreen', 'minimal-ui'].some(m => matchMedia('(display-mode: ' + m + ')').matches) || /[?&]kiosk/.test(location.search);
   window.LANE_INSTALLED = installed;
+
+  // Full version installed on this PC (install.sh → local server on port 8080)? Then hand over to it:
+  // Odoo lookup, NUC serial, USB device list and the serial port all work there. "?web" stays in the web edition.
+  const FULL = 'http://127.0.0.1:8080/';
+  if (!/[?&]web\b/.test(location.search)) {
+    const ctl = new AbortController(); setTimeout(() => ctl.abort(), 1500);
+    fetch(FULL + 'api/config', { mode: 'no-cors', cache: 'no-store', signal: ctl.signal })
+      .then(() => location.replace(FULL))
+      .catch(() => { });
+  }
   const D = window.LANE_DEFAULTS || {};
   const LS = { get(k, d) { try { const v = localStorage.getItem('jt.web.' + k); return v ? JSON.parse(v) : d; } catch { return d; } },
                set(k, v) { try { localStorage.setItem('jt.web.' + k, JSON.stringify(v)); } catch { } } };
