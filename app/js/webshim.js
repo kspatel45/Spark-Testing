@@ -6,6 +6,8 @@
 (function () {
   'use strict';
   window.LANE_WEB = true;
+  const installed = ['standalone', 'fullscreen', 'minimal-ui'].some(m => matchMedia('(display-mode: ' + m + ')').matches) || /[?&]kiosk/.test(location.search);
+  window.LANE_INSTALLED = installed;
   const D = window.LANE_DEFAULTS || {};
   const LS = { get(k, d) { try { const v = localStorage.getItem('jt.web.' + k); return v ? JSON.parse(v) : d; } catch { return d; } },
                set(k, v) { try { localStorage.setItem('jt.web.' + k, JSON.stringify(v)); } catch { } } };
@@ -40,7 +42,7 @@
     const P = config().peripherals || {};
     const excl = new RegExp(P.cameraExclude || '\\bIR\\b|infrared', 'i');
     cams = cams.filter(c => !excl.test(c.label || ''));
-    const na = (id, label) => ({ id, label, required: null, why: ['Only in the installed (full) version'], found: [], status: 'unknown' });
+    const na = (id, label) => ({ id, label, required: null, why: ['Checked by the Windows tester only (browsers cannot read the USB device list)'], found: [], status: 'unknown' });
     const rows = [
       { id: 'nuc', label: 'NUC serial number', required: true, found: [], status: 'unknown', value: 'not available in the web version' },
       na('barcode', 'Barcode scanner'), na('twn4', 'Badge reader – TWN4 (Elatec)'), na('hid', 'HID reader (OMNIKEY / pcProx)')
@@ -106,11 +108,16 @@
   document.head.appendChild(css);
   document.addEventListener('DOMContentLoaded', () => {
     const w = document.getElementById('odooWarn');
-    if (w) w.innerHTML = '<b>Web version:</b> the Odoo SO lookup is not available here – enter the SO number and choose the unit (Spark XL / Companion) manually.';
+    if (w) w.innerHTML = 'Enter the SO number and choose the unit (<b>Spark XL</b> / <b>Companion</b>) – the Odoo SO lookup runs only in the Windows tester.';
     document.querySelectorAll('.start-card p').forEach(p => { if (/pulled from Odoo/i.test(p.textContent)) p.textContent = 'Enter your name and the Sales Order number, then choose the unit you are testing.'; });
     const lk = document.getElementById('btnLookup'); if (lk) lk.textContent = 'Continue';
     const h = document.querySelector('.brand-title');
-    if (h && !h.querySelector('.web-badge')) h.insertAdjacentHTML('beforeend', '<span class="web-badge">WEB</span>');
+    if (h && !h.querySelector('.web-badge') && !installed) h.insertAdjacentHTML('beforeend', '<span class="web-badge">WEB</span>');
+    if (installed) {
+      // installed app: go full screen (kiosk look) on the first tap – browsers only allow it after a user gesture
+      const fs = () => { document.removeEventListener('pointerdown', fs, true); if (!document.fullscreenElement && document.documentElement.requestFullscreen) document.documentElement.requestFullscreen({ navigationUI: 'hide' }).catch(() => { }); };
+      if (!matchMedia('(display-mode: fullscreen)').matches) document.addEventListener('pointerdown', fs, true);
+    }
   });
 
   // offline / installable (PWA)

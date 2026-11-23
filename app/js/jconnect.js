@@ -188,6 +188,7 @@
         this.lanes[`${t}.${c}`] = r < 0.02 ? 3 : r < 0.35 ? 1 : 2;
       }
       this.timers = [];
+      this.active = []; this.history = [6, 10];   // simulated fault history
     }
     get ready() { return true; }
     flush() { this.timers.forEach(clearTimeout); this.timers = []; }
@@ -207,12 +208,24 @@
         case 108: Object.keys(this.lanes).forEach(k => { if (this.lanes[k] === 2) this.lanes[k] = 1.5; }); this._at(60, 212, `${m},0`); break;
         case 110: this._at(40, 214, 'JSDSIM01,1,01/01/2026 00:00,Simulator'); break;
         case 112: this._at(40, 216, '20,0,0'); break;
-        case 111: case 115: this._at(40, op === 111 ? 215 : 219, `${m}${op === 111 ? ',0,0' : ''}`); break;
+        case 111: {
+          // one Op 215 per fault; "0" fault number = none
+          const kind = f[1] || '0';
+          if (kind === '2') { this.history = []; this._at(40, 215, `${m},2,0`); break; }
+          const list = kind === '0' ? [...this.active] : this.history;
+          if (!list.length) this._at(40, 215, `${m},${kind},0`);
+          list.forEach((n, i) => this._at(40 + i * 30, 215, `${m},${kind},${n},${3 + i},1${[5, 6].includes(n) ? ',12,20-11-2026 09:15' : ''}`));
+          break;
+        }
+        case 115: this._at(40, 219, [m, ...this.active].join(',')); break;
         case 116: if (f[0] !== '') this.extended = +f[0]; this._at(40, 221, String(this.extended)); break;
         case 117: this._at(40, 222, `${m},0,0,0,0,0,0,0,0`); break;
         case 118: if (f[1] != null && f[1] !== '') this.tracking = +f[1]; this._at(40, 224, `0,0`); break;
         case 152: this._status(40, m); break;
-        case 153: this.avail = 1; this._status(40, m); this.avail = 0; this._status(2500, m); break;
+        case 153:
+          this.history = [...new Set([...this.history, ...this.active])]; this.active = [];
+          this.avail = 1; this._status(40, m); this._set(2500, () => { this.avail = 0; this._status(0, m); this._at(0, 222, `${m},0,0,0,0,0,0,0,0`); });
+          break;
         case 150: case 155: this._vend(f); break;
         case 154:
           if (this.model === 'qendra') { this._at(40, 211, `${m},3`); break; }

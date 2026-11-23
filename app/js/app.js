@@ -153,7 +153,7 @@
       const loaded = indexes.filter(i => session.lanes[i].chStatus === 1).map(i => session.lanes[i].code);
       if (loaded.length && !await confirmDlg('Basic test needs empty lanes',
         `${loaded.length} lane(s) had product at the last scan (${loaded.slice(0, 12).join(', ')}${loaded.length > 12 ? ' …' : ''}). ` +
-        'A lane with product drops it into the elevator, the hatch cannot close on it, and the run stops at that lane. Unload those lanes, or use Full cycle. Start anyway?', 'Start anyway')) return;
+        'A product that drops stays in the hatch and the Qendra keeps the door open until it is taken out – the test keeps retrying the close and then carries on. Unload those lanes for an unattended run, or use Full cycle. Start anyway?', 'Start anyway')) return;
     }
     setRunning(true); acquireWakeLock(); setStep('reset');
     setProgress(0, total, 'Checking machine…');
@@ -216,11 +216,26 @@
     jsd.readSensors().catch(() => { });
   }
 
+  let scanning = false;
+  // the JSD also sends Op 202 by itself when a channel changes (e.g. after the machine self-check): keep the grid live
+  jsd.on('rx', msg => {
+    if (msg.op !== 202 || scanning || !session || !Array.isArray(session.lanes) || msg.f[0] !== jsd.mn) return;
+    const tray = Number(msg.f[1]), ch = Number(msg.f[2]), stv = Number(msg.f[3]);
+    let l = session.lanes.find(x => x.row === tray && x.col === ch);
+    if (!l && stv) { l = { row: tray, col: ch, code: laneCode(tray, ch), status: 'untested', error: '', note: '', ms: 0, at: '' }; session.lanes.push(l); session.lanes.sort((a, b) => a.row - b.row || a.col - b.col); }
+    if (!l || l.status === 'testing') return;
+    l.chStatus = stv;
+    if (!stv) l.status = 'absent'; else if (l.status === 'absent') l.status = 'untested';
+    saveSession(); renderGrid();
+  });
   async function scanLanes(silent) {
     if (running || !ensureReady()) return;
     setRunning(true);
     setProgress(0, 1, 'Scanning lanes…');
-    const r = await jsd.scan((n, total, tray, ch) => setProgress(n, total, `Scanning tray ${tray} channel ${ch}`));
+    scanning = true;
+    const r = await jsd.scan((n, total, tray, ch) => setProgress(n, total, `Scanning tray ${tray} channel ${ch}`),
+      { redetect: !silent, onStage: t => setProgress(0, 1, t) });
+    scanning = false;
     setRunning(false);
     if (r.error) { toast(r.error, 'err', 6000); setProgress(0, 0, 'Scan failed'); return; }
     if (r.aborted) { setProgress(0, 0, 'Scan stopped'); return; }
@@ -539,7 +554,7 @@
     $('#periphInfo').textContent = `${p.os} · ${p.host.name || ''} · ${new Date(p.at).toLocaleTimeString()}`;
     const notes = [];
     if (p.error) notes.push(`<div class="notice notice-err">${esc(p.error)}</div>`);
-    if (!p.requirementsKnown && window.LANE_WEB) notes.push(`<div class="notice">Web version: only the cameras can be checked here. The NUC serial number, barcode scanner and badge readers need the installed (full) version.</div>`);
+    if (!p.requirementsKnown && window.LANE_WEB) notes.push(`<div class="notice">Only the cameras can be checked from the browser. The NUC serial number, barcode scanner and badge readers are checked by the Windows tester (browsers may not read the USB device list).</div>`);
     else if (!p.requirementsKnown) notes.push(`<div class="notice">The SO options are not known (Odoo lookup without variant options, or unit chosen manually) – only the default camera is expected. Look up the SO again to load its options.</div>`);
     else if (p.missing) notes.push(`<div class="notice notice-err"><b>${p.missing} item(s) missing</b> – check the cables / USB hub, then press Check devices.</div>`);
     else notes.push(`<div class="notice notice-ok">All peripherals required by ${esc(session.so)} are connected (cameras ${p.cameraCount.found}/${p.cameraCount.expected}).</div>`);
@@ -751,6 +766,7 @@
           ${fld('Basic test: lane run time (ms)', 'timing.basicRunMs', 'num')}
           ${fld('Basic test: hatch open time (ms)', 'timing.basicHatchOpenMs', 'num')}
           ${fld('Basic test: elevator travel time if no state (ms)', 'timing.basicTravelMs', 'num')}
+          ${fld('Basic test: keep retrying hatch close for (ms)', 'timing.basicCloseWaitMs', 'num')}
           ${fld('Pause between lanes (ms)', 'timing.betweenLanesMs', 'num')}
           ${fld('Heartbeat interval (ms)', 'timing.heartbeatMs', 'num')}
           ${fld('Missed heartbeats before alarm', 'timing.heartbeatMissLimit', 'num')}
@@ -821,21 +837,54 @@
   // ============================================================ manual actions
   async function manual(act, btn) {
     if (!ensureReady() || running) return;
-    if (act === 'faults' && !await confirmDlg('Reset faults', 'Op 153 resets faults and runs the machine auto-test. Jofemar warns not to send it while the machine is trying to recover by itself. Continue?', 'Reset')) return;
     btn.disabled = true;
     let r;
     try {
-      if (act === 'status') r = await jsd.status();
+      if (act === 'status') { await showFaults(); return; }
       if (act === 'toHatch') r = await jsd.toHatch(session && session.unitCode);
       if (act === 'closeHatch') r = await jsd.closeHatch();
       if (act === 'light') r = await jsd.light(!(jsd.m.light === 1));
       if (act === 'soldout') r = await jsd.resetSoldOut();
-      if (act === 'faults') r = await jsd.resetFaults();
+      if (act === 'faults') { await resetAllFaults(); return; }
     } finally { btn.disabled = false; }
     const answer = r && r.ok ? r.msg.text : '';
     let okText = r && r.ok;
     if (r && r.ok && [211, 226, 227, 212].includes(r.msg.op) && r.msg.f[1] !== '0') okText = false;
     toast(`${btn.textContent}: ${r.ok ? (okText ? 'OK' : 'refused by machine') + (answer ? ` (${r.msg.op}: ${answer})` : '') : r.error}`, okText ? 'ok' : 'err', 5000);
+  }
+
+  // ============================================================ machine status / faults (Op 100, 115, 111 → 215)
+  const faultRow = (f, active) => `<tr class="${active ? 'f-act' : ''}"><td><i class="led ${active ? 'bad' : 'off'}"></i></td><td><b>${f.n}</b></td><td>${esc(EVENTS[f.n] || 'Unknown fault')}</td>` +
+    `<td>${f.times != null ? f.times + '×' : ''}${f.minutes != null ? ` · ${f.minutes} min` : ''}</td><td>${esc(f.last || '')}</td></tr>`;
+  function renderFaults(rep) {
+    const m = jsd.m;
+    const kv = (k, v, cls = '') => `<div class="kv"><span>${k}</span><b class="${cls}">${esc(v)}</b></div>`;
+    const avail = m.comm != null && m.comm !== 1 ? (m.comm === 2 ? 'Machine lost' : 'Machine not connected') : m.service === 0 ? 'Out of service' : (AVAIL[m.avail] || '–');
+    const tbl = (list, active, err) => err ? `<div class="notice notice-err">${esc(err)}</div>` : list.length
+      ? `<table class="fault-tbl"><thead><tr><th></th><th>#</th><th>Fault</th><th>Count</th><th>Last active</th></tr></thead><tbody>${list.map(f => faultRow(f, active)).join('')}</tbody></table>`
+      : `<div class="notice notice-ok">${active ? 'No active faults' : 'No non-active faults in the history'}</div>`;
+    $('#faultBody').innerHTML = (rep.error ? `<div class="notice notice-err">${esc(rep.error)}</div>` : '') +
+      `<div class="fault-kv">${kv('Machine link', m.comm === 1 ? 'Connected' : m.comm == null ? '–' : 'Not connected', m.comm === 1 ? 'good' : 'bad')}${kv('Service', m.service === 1 ? 'In service' : m.service === 0 ? 'Out of service' : '–', m.service === 1 ? 'good' : 'bad')}` +
+      `${kv('Main door', m.door === 1 ? 'Closed' : m.door === 0 ? 'OPEN' : '–', m.door === 1 ? 'good' : 'bad')}${kv('Availability', avail)}${kv('Elevator (Op 225)', m.qSeen ? (QSTATE[m.q] || String(m.q)) : '–')}${kv('Temperature', m.temp ? m.temp + ' °C' : '–')}</div>` +
+      `<h4>Active faults (${rep.active.length})</h4>${tbl(rep.active, true, rep.activeError)}` +
+      `<h4>Non-active faults – history (${rep.inactive.length})</h4>${tbl(rep.inactive, false, rep.inactiveError)}`;
+    $('#faultAt').textContent = 'Read ' + new Date().toLocaleTimeString();
+  }
+  async function showFaults() {
+    $('#modalFaults').hidden = false;
+    $('#faultBody').innerHTML = '<div class="muted">Reading machine status and faults…</div>';
+    const rep = await jsd.faultReport();
+    renderFaults(rep);
+    log(rep.active.length ? 'err' : 'info', `Machine status: ${rep.active.length} active fault(s), ${rep.inactive.length} non-active`);
+  }
+  async function resetAllFaults() {
+    if (!await confirmDlg('Reset faults', 'This resets the ACTIVE faults and runs the machine auto-test (Op 153), then clears the NON-ACTIVE fault history (Op 111). Jofemar warns not to send it while the machine is trying to recover by itself. Continue?', 'Reset')) return;
+    $('#modalFaults').hidden = false;
+    $('#faultBody').innerHTML = '<div class="muted">Resetting faults – machine auto-test running…</div>';
+    const r = await jsd.resetAllFaults();
+    log(r.ok ? 'info' : 'err', 'Reset faults: ' + r.text);
+    toast(r.text, r.ok ? 'ok' : 'err', 7000);
+    renderFaults(await jsd.faultReport());
   }
 
   // ============================================================ wiring
@@ -890,6 +939,8 @@
       $('#btnSensors').disabled = true; await jsd.readSensors().catch(() => { }); $('#btnSensors').disabled = false;
     };
     $('#btnPeriph').onclick = () => checkPeripherals(true);
+    $('#btnFaultRefresh').onclick = () => { if (ensureReady()) showFaults(); };
+    $('#btnFaultReset').onclick = () => { if (ensureReady() && !running) resetAllFaults(); };
     $('#btnCamClose').onclick = () => { stopCam(); $('#modalCam').hidden = true; };
     $('#btnStop').onclick = () => { jsd.abort = true; $('#progTxt').textContent = 'Stopping – bringing the machine to a safe state…'; };
     $('#btnScan').onclick = () => scanLanes(false);

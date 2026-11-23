@@ -321,3 +321,15 @@ table.tbl select { min-width: 84px; }
 .cam-view video { width: 100%; height: 100%; object-fit: contain; display: block; }
 .cam-msg { position: absolute; inset: 0; display: grid; place-items: center; color: #fff; text-align: center; padding: 20px; }
 .cam-msg:empty { display: none; }
+
+/* machine status / faults window */
+.fault-body { max-height: 62vh; overflow: auto; padding: 4px 2px; }
+.fault-body h4 { margin: 14px 0 6px; font-size: .95rem; }
+.fault-kv { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 6px 14px; }
+.fault-kv .kv { display: flex; justify-content: space-between; gap: 8px; padding: 6px 10px; border: 1px solid var(--line, #e3e6ea); border-radius: 8px; font-size: .88rem; }
+.fault-kv .good { color: var(--pass); } .fault-kv .bad { color: var(--brand); }
+.fault-tbl { width: 100%; border-collapse: collapse; font-size: .88rem; }
+.fault-tbl th, .fault-tbl td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line, #e3e6ea); }
+.fault-tbl th { font-size: .75rem; text-transform: uppercase; letter-spacing: .04em; color: #667085; }
+.fault-tbl tr.f-act td { background: var(--fail-bg); }
+.fault-tbl td:first-child { width: 22px; }

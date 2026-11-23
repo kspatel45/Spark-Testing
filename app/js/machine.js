@@ -313,11 +313,31 @@
     }
 
     // ---------------------------------------------------------- lane scan (Op 101 -> 202)
-    async scan(onProgress) {
+    async scan(onProgress, opts = {}) {
       const J = this.cfg.jconnect, mn = this.mn;
       const first = Number(J.firstTray) || 11, last = Number(J.lastTray) || 18, maxCh = Number(J.maxChannels) || 10;
       const total = (last - first + 1) * maxCh;
       const out = []; let n = 0, misses = 0;
+      if (opts.redetect) {
+        // The machine only re-detects its lane motors during its self-check (door closed / Op 153 auto test).
+        // Without it the JSD keeps reporting a lane that was unplugged as connected.
+        await this.request(100, mn, 201, this.mine(201), 2000);
+        const busy = this.m.avail != null && this.m.avail !== 0;
+        if (busy) this.emit('log', 'warn', 'Lane re-detect skipped: the machine is busy – scanning with the last detected lanes');
+        else {
+          opts.onStage && opts.onStage('Machine self-check (re-detecting lanes)…');
+          this.emit('log', 'info', 'Lane re-detect: machine self-check (Op 153)');
+          const selfCheck = this.until(msg => msg.op === 222 && msg.f[0] === mn ? true : undefined, 25000);
+          const r = await this.request(153, mn, 201, this.mine(201), 8000);
+          if (!r.ok) { selfCheck.cancel(); this.emit('log', 'warn', 'Self-check not started: ' + r.error); }
+          else {
+            const done = await selfCheck;
+            if (done && done.aborted) return { aborted: true, lanes: out };
+            await this.waitState(() => this.m.avail === 0, 20000);
+            await sleep(500);
+          }
+        }
+      }
       const ts = await this.request(117, mn, 222, this.mine(222), 2000);
       const sensors = ts.ok ? ts.msg.f.slice(1) : null;
       for (let tray = first; tray <= last; tray++) {
@@ -384,6 +404,7 @@
       const openMs = Math.max(500, Number(T.basicHatchOpenMs) || 2000);
       const travelMs = Math.max(2000, Number(T.basicTravelMs) || 8000);       // used when the JSD gives no precise state (no tracking)
       const moveMs = Number(T.hatchTimeoutMs) || 30000, homeMs = Number(T.homeTimeoutMs) || 40000;
+      const closeMs = Math.max(5000, Number(T.basicCloseWaitMs) || 60000);   // how long to keep retrying the hatch close
       const tok = this.nextToken(), t0 = Date.now();
       this.curTok = tok; this.tokSt = null;
       let cur = 'move';
@@ -402,9 +423,13 @@
         detail('Basic: bringing the elevator home first');
         if (![2, 13, 4, 5, 6].includes(q())) await this.waitState(() => [1, 2, 13, 5, 6].includes(q()), homeMs);
         if (this.abort) return stopped();
-        // a product in the elevator blocks the Qendra – Basic is unattended, so stop instead of waiting for someone
-        if ([2, 5, 12, 13].includes(q()) || this.m.prod === 1) return { status: 'stopped', halt: 'There is a product in the elevator / hatch. Basic test needs empty lanes and an empty elevator – take the product out, then start again.', step: 'move', ms: Date.now() - t0 };
-        if (q() !== 1 && !(await this._clearElevator(() => { }, 'Before lane: ', true))) return fail(`Elevator is not home before the lane started (state: ${stateTxt()})`, { step: 'move' });
+        // Basic is unattended: never wait for a person – present / close the hatch by itself and carry on
+        if (![1, 2].includes(q())) {
+          if (q() === 13 || q() === 2) await this.request(158, mn, 227, this.mine(227));
+          await this.waitState(() => [1, 2, 5, 6].includes(q()), moveMs);
+          if (!(await this._closeHatchAuto(closeMs, detail)) && !this.abort) return fail(`Elevator is not home before the lane started – hatch held open (state: ${stateTxt()})`, { step: 'move' });
+        }
+        if (this.abort) return stopped();
       }
 
       // ---- 1. elevator → lane, run lane (time based)
@@ -481,28 +506,26 @@
       await this._wait(openMs);
       if (this.abort) return stopped();
       st('home'); detail('Basic: closing hatch, elevator → home');
-      const close = () => this.request(157, mn, 226, this.mine(226));
-      const c = await close();
-      if (!c.ok) return fail('Close hatch: ' + c.error);
-      if (c.msg.f[1] !== '0' && track() && ![5, 6, 7, 10, 1, 2].includes(q())) return fail(`Machine refused to close the hatch (state: ${stateTxt()})`);
-      let removed = false;
+      let held = false;
       if (track()) {
-        let home = await this.waitState(() => [1, 2].includes(q()), Math.min(10000, homeMs));
-        if (home !== true && !home.aborted && q() === 6) { await close(); home = await this.waitState(() => [1, 2].includes(q()), homeMs); }
-        if (home !== true && !home.aborted && q() === 5) {
-          // The door stays open: the lane ran until a product dropped (the JSD stops a lane only on its own sensors)
-          // and the Qendra will not close the hatch on a product. Basic is unattended: the lane itself passed
-          // (lane, elevator and hatch all moved), but the run cannot continue until the product is taken out.
-          st('done');
-          return {
-            status: 'pass', ms: Date.now() - t0, token: tok, note: 'Basic: lane, elevator and hatch moved – a product dropped and is still in the hatch',
-            halt: `A product dropped into the hatch from lane ${lane.code || lane.row + '-' + lane.col}. Basic test needs empty lanes – take the product out (the hatch closes by itself), unload the lanes, then start again.`
-          };
-        } else if (home !== true && !home.aborted) home = await this.waitState(() => [1, 2].includes(q()), homeMs);
-        if (home !== true) return home.aborted ? stopped() : fail(`Hatch did not close / elevator did not return home (state: ${stateTxt()})`);
-      } else await this._wait(travelMs);
+        // Op 157 straight away – no product check; repeated while the door is still open (no person needed)
+        const t1 = Date.now();
+        const closed = await this._closeHatchAuto(closeMs, detail);
+        if (this.abort) return stopped();
+        held = Date.now() - t1 > 8000;
+        if (!closed) {
+          // motors all ran; only the product sensor keeps the door open → Basic ignores it and moves on (next lane retries the close)
+          if (q() === 5 || q() === 6) { st('done'); return { status: 'pass', ms: Date.now() - t0, token: tok, note: 'Basic: lane, elevator and hatch moved – hatch kept open by the product sensor (product in the hatch?)' }; }
+          const home = await this.waitState(() => [1, 2].includes(q()), homeMs);
+          if (home !== true) return home.aborted ? stopped() : fail(`Hatch did not close / elevator did not return home (state: ${stateTxt()})`);
+        }
+      } else {
+        const c = await this.request(157, mn, 226, this.mine(226));
+        if (!c.ok) return fail('Close hatch: ' + c.error);
+        await this._wait(travelMs);
+      }
       st('done');
-      return { status: 'pass', ms: Date.now() - t0, token: tok, note: 'Basic: lane, elevator and hatch moved (time based)' + (removed ? ' – product was taken out of the hatch' : '') };
+      return { status: 'pass', ms: Date.now() - t0, token: tok, note: 'Basic: lane, elevator and hatch moved (time based)' + (held ? ' – hatch was held open by the product sensor for a while' : '') };
     }
 
     async _testLane(lane, unitCode, H = {}) {
@@ -672,6 +695,71 @@
     status() { return this.request(100, this.mn, 201, this.mine(201)); }
     light(on) { return this.request(152, `${this.mn},${on ? 1 : 0}`, 201, this.mine(201)); }
     resetFaults() { return this.request(153, this.mn, 201, this.mine(201), 8000); }
+
+    /** Op 111 → 215 (one message per fault): kind 0 = active, 1 = non-active (history) */
+    async _faultList(kind) {
+      const mn = this.mn, list = [];
+      let last = 0, got = false;
+      const w = this.until(msg => {
+        if (ERR_OPS[msg.op] && msg.f[0] === '111') return { error: ERR_OPS[msg.op] };
+        if (msg.op !== 215 || msg.f[0] !== mn || msg.f[1] !== String(kind)) return;
+        got = true; last = Date.now();
+        const n = Number(msg.f[2]);
+        if (n && !list.some(x => x.n === n)) list.push({ n, times: Number(msg.f[3]) || 0, partial: Number(msg.f[4]) || 0, minutes: msg.f[5] != null && msg.f[5] !== '' ? Number(msg.f[5]) : null, last: msg.f[6] || '' });
+      }, 6000, { ignoreAbort: true, check: () => got && Date.now() - last > 700 ? 'done' : undefined });
+      try { await this.send(111, `${mn},${kind}`); } catch (e) { w.cancel(); return { ok: false, error: e.message }; }
+      const r = await w;
+      if (r && r.error) return { ok: false, error: r.error };
+      if (!got) return { ok: false, error: 'No answer from JSD to Op 111 (faults)' };
+      return { ok: true, list };
+    }
+    /** machine status (Op 100) + active (Op 115 and 111/0) + non-active (111/1) faults */
+    async faultReport() {
+      const mn = this.mn;
+      const st = await this.request(100, mn, 201, this.mine(201));
+      const act219 = await this.request(115, mn, 219, this.mine(219));
+      const active = await this._faultList(0);
+      const inactive = await this._faultList(1);
+      this.emit('state');
+      const a = active.ok ? active.list : [];
+      if (act219.ok) for (const n of this.m.faults) if (!a.some(x => x.n === n)) a.push({ n, times: null });
+      return { ok: st.ok, error: st.ok ? '' : st.error, active: a, inactive: inactive.ok ? inactive.list : [], inactiveError: inactive.ok ? '' : inactive.error, activeError: active.ok || act219.ok ? '' : active.error };
+    }
+    /** reset active faults + auto test (Op 153), then clear the non-active fault history (Op 111 data 2) */
+    async resetAllFaults() {
+      const mn = this.mn, out = [];
+      const a = await this.request(153, mn, 201, this.mine(201), 8000);
+      out.push(a.ok ? 'Active faults reset (Op 153) – machine auto-test running' : 'Reset active faults failed: ' + a.error);
+      const c = await this.request(111, `${mn},2`, 215, msg => msg.f[0] === mn && msg.f[1] === '2', 4000);
+      out.push(c.ok ? 'Non-active fault history cleared (Op 111)' : 'Clear non-active faults failed: ' + c.error);
+      // the auto test re-reports the faults it still sees: give it a moment
+      await this.waitState(() => this.m.avail === 0, 15000, { ignoreAbort: true });
+      await this.request(115, mn, 219, this.mine(219), 2500);
+      this.emit('state');
+      return { ok: a.ok && c.ok, text: out.join(' · ') };
+    }
+
+    /** Qendra: close the hatch without anyone at the machine – Op 157, repeated, until the elevator is home or maxMs passes */
+    async _closeHatchAuto(maxMs, detail = () => { }) {
+      const mn = this.mn, q = () => this.m.q, t0 = Date.now();
+      let lastSend = 0, sent158 = false, warned = false;
+      while (Date.now() - t0 < maxMs) {
+        if ([1, 2].includes(q())) return true;
+        if ([11, 12].includes(q())) return false;
+        if (q() === 13 && !sent158) { sent158 = true; await this.request(158, mn, 227, this.mine(227)); }
+        if ([4, 5, 6].includes(q()) && Date.now() - lastSend > 2500) {
+          lastSend = Date.now();
+          await this.request(157, mn, 226, this.mine(226));
+          if (!warned && q() === 5 && Date.now() - t0 > 6000) {
+            warned = true;
+            this.emit('log', 'warn', 'Hatch still open: the Qendra product sensor sees something in the hatch – it keeps the door open until it is clear. Retrying close…');
+            detail('Hatch held open by the product sensor – retrying close');
+          }
+        }
+        await sleep(200);
+      }
+      return [1, 2].includes(q());
+    }
     resetSoldOut() { return this.request(108, this.mn, 212, this.mine(212)); }
     activeFaults() { return this.request(115, this.mn, 219, this.mine(219)); }
   }

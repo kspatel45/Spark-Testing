@@ -71,6 +71,7 @@ window.LANE_DEFAULTS = {
     "basicRunMs": 3000,
     "basicHatchOpenMs": 2000,
     "basicTravelMs": 8000,
+    "basicCloseWaitMs": 60000,
     "betweenLanesMs": 500,
     "heartbeatMs": 2000,
     "testPollMs": 1000,

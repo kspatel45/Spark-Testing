@@ -7,7 +7,7 @@
   <link rel="icon" href="../icons/icon-192.png">
   <link rel="manifest" href="../manifest.webmanifest">
   <meta name="theme-color" content="#1f2121">
-  <link rel="stylesheet" href="css/app.css?v=202611231801">
+  <link rel="stylesheet" href="css/app.css?v=202611231914">
 </head>
 <body>
   <!-- ============================================================ HEADER -->
@@ -282,6 +282,20 @@
     </div>
   </div>
 
+  <div class="modal" id="modalFaults" hidden>
+    <div class="modal-box">
+      <div class="modal-head"><h2>Machine status &amp; faults</h2><button class="icon-btn" data-close>✕</button></div>
+      <div id="faultBody" class="fault-body"></div>
+      <div class="modal-foot">
+        <span class="muted" id="faultAt"></span>
+        <div class="spacer"></div>
+        <button class="btn" id="btnFaultRefresh">&#8635; Refresh</button>
+        <button class="btn btn-danger" id="btnFaultReset">Reset faults (active + inactive)</button>
+        <button class="btn btn-primary" data-close>Close</button>
+      </div>
+    </div>
+  </div>
+
   <div class="modal" id="modalPortHelp" hidden>
     <div class="modal-box">
       <div class="modal-head"><h2>COM port not showing?</h2><button class="icon-btn" data-close>✕</button></div>
@@ -317,10 +331,10 @@
   <div id="toasts" class="toasts"></div>
   <div id="printArea" class="print-area"></div>
 
-  <script src="js/defaults.js?v=202611231801"></script>
-  <script src="js/webshim.js?v=202611231801"></script>
-  <script src="js/jconnect.js?v=202611231801"></script>
-  <script src="js/machine.js?v=202611231801"></script>
-  <script src="js/app.js?v=202611231801"></script>
+  <script src="js/defaults.js?v=202611231914"></script>
+  <script src="js/webshim.js?v=202611231914"></script>
+  <script src="js/jconnect.js?v=202611231914"></script>
+  <script src="js/machine.js?v=202611231914"></script>
+  <script src="js/app.js?v=202611231914"></script>
 </body>
 </html>

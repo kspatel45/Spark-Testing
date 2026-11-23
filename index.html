@@ -67,6 +67,21 @@
       </ol>
     </section>
 
+    <section class="card full" id="kiosk">
+      <h3 style="margin-top:0">Desktop shortcut – opens in kiosk mode</h3>
+      <p>Installing the app (above) adds <b>Lane Tester</b> to the app launcher and opens it in its own window; it switches to full screen on the first tap.
+        For a true kiosk window (no browser bars, full screen, <b>Alt+F4</b> to exit) download a desktop shortcut for this PC:</p>
+      <div class="btns">
+        <button class="btn btn-primary" id="dlLinux">⬇ Kiosk shortcut – Linux (Ubuntu)</button>
+        <button class="btn" id="dlWin">⬇ Kiosk shortcut – Windows</button>
+      </div>
+      <ol class="note">
+        <li><b>Linux:</b> save <code>lane-tester-kiosk.desktop</code> into <b>Desktop</b> (Files → Downloads → move it to Desktop), right-click it → <b>Allow Launching</b>. Double-click to start.</li>
+        <li><b>Windows:</b> save <code>Lane Tester (kiosk).cmd</code> on the Desktop and double-click it (choose <i>More info → Run anyway</i> if SmartScreen asks).</li>
+        <li>The kiosk shortcut uses its own Chrome profile: pick the FTDI port once with <b>+ Port</b> there; its settings and saved results are kept separately from normal Chrome.</li>
+      </ol>
+    </section>
+
     <section class="card qr">
       <div id="qr">Loading QR…</div>
       <b>Scan to open on another device</b>
@@ -85,7 +100,7 @@
       </table>
       <div class="warn"><b>Linux NUC:</b> Chrome can only open the FTDI port if the logged-in user may use serial ports (member of the <code>dialout</code> group).
         If <b>Connect</b> fails with “Failed to open serial port”, ask IT to add the kiosk user to <code>dialout</code> and log in again.</div>
-      <p class="note">Version <span id="ver">202611231801</span></p>
+      <p class="note">Version <span id="ver">202611231914</span></p>
     </section>
   </main>
 
@@ -102,15 +117,41 @@
       document.getElementById('qr').innerHTML = q.createSvgTag({ cellSize: 6, margin: 2, scalable: true });
     } catch { document.getElementById('qr').textContent = 'QR code needs internet access – use the link instead.'; }
 
+    // kiosk desktop shortcuts (a web page cannot write to the desktop itself – the tester saves the file there)
+    function saveFile(name, text, type) {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name;
+      document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+    }
+    const BS = String.fromCharCode(92);
+    const D = BS + BS + '$';   // a "$" inside a quoted .desktop Exec argument is written as \\$
+    document.getElementById('dlLinux').onclick = () => saveFile('lane-tester-kiosk.desktop', [
+      '[Desktop Entry]', 'Version=1.0', 'Type=Application', 'Name=Lane Tester (kiosk)', 'Comment=Signifi lane tester - full-screen kiosk window (Alt+F4 to exit)',
+      'Exec=sh -c "B=' + D + '(command -v google-chrome-stable || command -v google-chrome || command -v chromium || command -v chromium-browser || command -v microsoft-edge); exec ' + D + 'B --kiosk --no-first-run --no-default-browser-check --user-data-dir=' + D + 'HOME/.config/signifi-lane-tester --app=' + appUrl + '"',
+      'Icon=web-browser', 'Terminal=false', 'Categories=Utility;', 'StartupNotify=true', ''
+    ].join('\n'), 'application/x-desktop');
+    document.getElementById('dlWin').onclick = () => {
+      const chrome = '%ProgramFiles%' + BS + 'Google' + BS + 'Chrome' + BS + 'Application' + BS + 'chrome.exe';
+      const chrome86 = '%ProgramFiles(x86)%' + BS + 'Google' + BS + 'Chrome' + BS + 'Application' + BS + 'chrome.exe';
+      const flags = '--kiosk --no-first-run --no-default-browser-check --user-data-dir="%PROFILE%" --app="%URL%"';
+      saveFile('Lane Tester (kiosk).cmd', [
+        '@echo off', 'REM Signifi Lane Tester - full-screen kiosk window (Alt+F4 to exit)',
+        'set "URL=' + appUrl + '"', 'set "PROFILE=%LOCALAPPDATA%' + BS + 'SignifiLaneTester"',
+        'if exist "' + chrome + '" (start "" "' + chrome + '" ' + flags + ' & exit /b)',
+        'if exist "' + chrome86 + '" (start "" "' + chrome86 + '" ' + flags + ' & exit /b)',
+        'start "" msedge --kiosk "%URL%" --edge-kiosk-type=fullscreen --no-first-run --user-data-dir="%PROFILE%"', ''
+      ].join('\r\n'), 'application/octet-stream');
+    };
+
     // PWA install
     let deferred = null;
     window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferred = e; document.getElementById('btnInstall').hidden = false; });
     document.getElementById('btnInstall').onclick = async () => {
       if (!deferred) return; deferred.prompt();
       const r = await deferred.userChoice; deferred = null; document.getElementById('btnInstall').hidden = true;
-      if (r.outcome === 'accepted') document.getElementById('installState').innerHTML = '<span class="ok">Installed.</span> Open it from the desktop / app launcher (“Lane Tester”).';
+      if (r.outcome === 'accepted') document.getElementById('installState').innerHTML = '<span class="ok">Installed.</span> Open it from the desktop / app launcher (“Lane Tester”). For a kiosk-mode desktop icon use the shortcut below.';
     };
-    window.addEventListener('appinstalled', () => { document.getElementById('installState').innerHTML = '<span class="ok">Installed.</span> Open it from the desktop / app launcher (“Lane Tester”).'; });
+    window.addEventListener('appinstalled', () => { document.getElementById('installState').innerHTML = '<span class="ok">Installed.</span> Open it from the desktop / app launcher (“Lane Tester”). For a kiosk-mode desktop icon use the shortcut below.'; });
     if (matchMedia('(display-mode: standalone)').matches) location.replace(appUrl);
     if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => { });
   </script>
